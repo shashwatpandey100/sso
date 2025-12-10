@@ -103,6 +103,7 @@ export const getLoginPage = async (req: Request, res: Response, next: NextFuncti
   }
 };
 
+
 // LOGIN (POST)
 export const login = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
@@ -164,28 +165,37 @@ export const login = async (req: Request, res: Response, next: NextFunction): Pr
     });
 
     // Set httpOnly cookies
+    // For cross-domain (different origins), sameSite must be 'none' and secure must be true
+    const isProduction = process.env.NODE_ENV === 'production';
+
     res.cookie('access_token', accessToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
+      secure: isProduction,
+      sameSite: isProduction ? 'none' : 'lax',
       maxAge: 24 * 60 * 60 * 1000, // 1 day
     });
 
     res.cookie('refresh_token', refreshToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
+      secure: isProduction,
+      sameSite: isProduction ? 'none' : 'lax',
       maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
     });
 
     // Set accounts_session cookie (Global SSO cookie for cross-app authentication)
-    res.cookie('accounts_session', accessToken, {
+    // Only set domain if COOKIE_DOMAIN is configured (for same parent domain SSO)
+    const sessionCookieOptions: any = {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      domain: process.env.COOKIE_DOMAIN || 'localhost', // e.g., '.shelfex.com' for production
+      secure: isProduction,
+      sameSite: isProduction ? 'none' : 'lax',
       maxAge: 24 * 60 * 60 * 1000, // 1 day
-    });
+    };
+    
+    if (process.env.COOKIE_DOMAIN) {
+      sessionCookieOptions.domain = process.env.COOKIE_DOMAIN;
+    }
+
+    res.cookie('accounts_session', accessToken, sessionCookieOptions);
 
     logger.info(`User logged in: ${user.email}`);
 
@@ -295,7 +305,7 @@ export const refresh = async (req: Request, res: Response, next: NextFunction): 
     res.cookie('access_token', newAccessToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
       maxAge: 24 * 60 * 60 * 1000, // 1 day
     });
 

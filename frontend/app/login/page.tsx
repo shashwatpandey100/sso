@@ -275,7 +275,7 @@ export default function LoginPage() {
   return (
     <Suspense fallback={
       <div className="flex min-h-screen flex-col items-center justify-center bg-white">
-        <AiOutlineLoading3Quarters className="h-8 w-8 animate-spin text-[#131313]" />
+        <AiOutlineLoading3Quarters className="h-6 w-6 animate-spin text-[#131313]" />
       </div>
     }>
       <LoginPageContent />

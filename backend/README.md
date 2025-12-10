@@ -1,6 +1,6 @@
 # Shelfex Accounts - OAuth 2.0 SSO Authentication System
 
-A production-grade Single Sign-On (SSO) authentication system built with **Express**, **TypeScript**, **Drizzle ORM**, and **PostgreSQL**. This system enables seamless authentication across multiple Shelfex products (ShelfScan, ShelfMuse, ShelfIntel) similar to how Google's `accounts.google.com` works for Gmail, YouTube, and Drive.
+A production-grade Single Sign-On (SSO) authentication system built with **Express**, **TypeScript**, **Drizzle ORM**, and **PostgreSQL**. This system enables seamless authentication across multiple Shelfex products (ShelfScan, ShelfMuse, ShelfIntel).
 
 ---
 
@@ -787,312 +787,1159 @@ Redirect: /login?client_id=shelfscan&redirect_uri=https://shelfscan.com/callback
 
 ---
 
-## SSO Flow Examples
+## SSO Flow Examples - Detailed Walkthrough
 
-### Scenario 1: Cold Start (User NOT Logged In)
+### Scenario 1: First-Time User Visit (Cold Start - No Login)
 
-**Context:** User opens a fresh browser and visits `shelfscan.com` for the first time.
+**Context:** User opens a fresh browser and visits `shelfscan.shelfexecution.com/` for the first time. No cookies exist anywhere.
 
+---
+
+**Step 1: User Visits ShelfScan**
+
+--> **User Action:** User types `https://shelfscan.shelfexecution.com/dashboard` in their browser and hits Enter.
+
+--> **ShelfScan NextJS Middleware Check:** The middleware on ShelfScan's server executes and checks for authentication cookies:
+   - Looking for: `shelfscan_access_token` and `shelfscan_refresh_token`
+   - Result: ❌ **NOT FOUND** (user is not authenticated on ShelfScan)
+
+--> **ShelfScan Decision:** Since the user is not authenticated, ShelfScan needs to redirect them to the central authentication server to verify their identity.
+
+--> **ShelfScan Middleware Action:** 
+   - Generates a random CSRF token (e.g., `xyz_random_csrf_string_abc123`) for security
+   - Stores this `state` value in a temporary cookie or session on ShelfScan's domain
+   - Constructs the OAuth authorization URL with the following parameters:
+     - `client_id`: `shelfscan` (identifies which app is requesting authentication)
+     - `redirect_uri`: `https://shelfscan.shelfexecution.com/callback` (where to send user back after authentication)
+     - `response_type`: `code` (OAuth 2.0 authorization code flow)
+     - `state`: `xyz_random_csrf_string_abc123` (CSRF protection token)
+
+--> **Redirect Response:** ShelfScan sends a **302 Redirect** response to:
 ```
-┌────────────────────────────────────────────────────────────────┐
-│ Step 1: User Opens ShelfScan                                   │
-└────────────────────────────────────────────────────────────────┘
+https://accounts.shelfexecution.com/api/v1/oauth/authorize?client_id=shelfscan&redirect_uri=https://shelfscan.shelfexecution.com/callback&response_type=code&state=xyz_random_csrf_string_abc123
+```
 
-User Browser → shelfscan.com/dashboard
-                    │
-                    ▼
-ShelfScan Middleware: "No shelfscan_session cookie"
-                    │
-                    ▼
-Redirect (302): accounts.shelfex.com/api/v1/oauth/authorize
-                ?client_id=shelfscan
-                &redirect_uri=https://shelfscan.com/callback
-                &response_type=code
+---
 
-┌────────────────────────────────────────────────────────────────┐
-│ Step 2: Accounts Checks for Session                            │
-└────────────────────────────────────────────────────────────────┘
+**Step 2: Authorization Endpoint Checks for Global Session**
 
-User Browser → accounts.shelfex.com/api/v1/oauth/authorize
-                    │
-                    ▼
-OAuth Controller: Check cookies.accounts_session
-                    │
-                    ▼
-                ❌ NOT FOUND
-                    │
-                    ▼
-Redirect (302): /login
-                ?client_id=shelfscan
-                &redirect_uri=https://shelfscan.com/callback
+--> **User's Browser:** Automatically follows the redirect and sends a GET request to the accounts service at:
+```
+https://accounts.shelfexecution.com/api/v1/oauth/authorize?client_id=shelfscan&redirect_uri=https://shelfscan.shelfexecution.com/callback&response_type=code&state=xyz_random_csrf_string_abc123
+```
 
-┌────────────────────────────────────────────────────────────────┐
-│ Step 3: User Sees Login Page                                   │
-└────────────────────────────────────────────────────────────────┘
+--> **Accounts Backend Validation:**
+   1. **Extract Query Parameters:** The backend extracts `client_id`, `redirect_uri`, `response_type`, and `state` from the URL.
+   
+   2. **Validate Client ID:** 
+      - Queries the `client_apps` table to verify that `client_id=shelfscan` exists
+      - Checks if the app is registered
+      - Result: ✅ **VALID** (shelfscan is a registered client app)
+   
+   3. **Validate Redirect URI:**
+      - Retrieves the `allowedRedirectUris` array for shelfscan from the database
+      - Verifies that `https://shelfscan.shelfexecution.com/callback` is in the whitelist
+      - Result: ✅ **VALID** (redirect URI is allowed for this client)
+   
+   4. **Validate Response Type:**
+      - Checks that `response_type=code`
+      - Result: ✅ **VALID** (authorization code flow)
 
-User Browser → accounts.shelfex.com/login?client_id=shelfscan...
-                    │
-                    ▼
-Frontend: Renders login form
-                    │
-User enters:
-  - identifier: "john@example.com"
-  - password: "SecurePass123!"
-                    │
-                    ▼
-POST /api/v1/auth/login
+--> **Check for Global SSO Cookie:**
+   - The backend looks for the `accounts_session` cookie in the request
+   - This cookie would have domain set to `.shelfexecution.com` (works across all subdomains)
+   - Result: ❌ **NOT FOUND** (user has never logged in before)
+
+--> **Backend Decision:** Since no `accounts_session` cookie exists, the user needs to authenticate with their credentials.
+
+--> **Redirect to Login Page:** The backend sends a **302 Redirect** response to:
+```
+https://accounts.shelfexecution.com/login?client_id=shelfscan&redirect_uri=https://shelfscan.shelfexecution.com/callback&response_type=code&state=xyz_random_csrf_string_abc123
+```
+
+**Note:** The OAuth parameters are preserved in the URL so the login page knows this is part of an OAuth flow.
+
+---
+
+**Step 3: User Sees Login Page and Submits Credentials**
+
+--> **User's Browser:** Loads the login page at `https://accounts.shelfexecution.com/login?client_id=shelfscan&...`
+
+--> **Frontend Behavior:**
+   - Renders the login form with fields for email/username and password
+   - Detects the OAuth parameters in the URL (`client_id`, `redirect_uri`, `state`)
+   - Stores these parameters in hidden form fields or local state
+
+--> **User Action:** User enters their credentials:
+   - Identifier: `john@example.com` (can be email or username)
+   - Password: `SecurePass123!`
+   - Clicks "Login" button
+
+--> **Frontend Submission:** The frontend sends a **POST** request to:
+```
+https://accounts.shelfexecution.com/api/v1/auth/login
+```
+
+**Request Headers:**
+```
+Content-Type: application/json
+```
+
+**Request Body:**
+```json
 {
   "identifier": "john@example.com",
   "password": "SecurePass123!",
   "client_id": "shelfscan",
-  "redirect_uri": "https://shelfscan.com/callback"
+  "redirect_uri": "https://shelfscan.shelfexecution.com/callback",
+  "response_type": "code",
+  "state": "xyz_random_csrf_string_abc123"
 }
+```
 
-┌────────────────────────────────────────────────────────────────┐
-│ Step 4: Login Success                                          │
-└────────────────────────────────────────────────────────────────┘
+**Note:** The `client_id`, `redirect_uri`, `response_type`, and `state` are included to signal that this is an OAuth login flow.
 
-Auth Controller:
-  1. Validate credentials ✅
-  2. Generate access_token
-  3. Generate refresh_token
-  4. Set cookies:
-     - accounts_session (domain: .shelfex.com) ⭐
-     - access_token
-     - refresh_token
-  5. Detect client_id exists
-  6. Redirect to: /api/v1/oauth/authorize
-                  ?client_id=shelfscan
-                  &redirect_uri=https://shelfscan.com/callback
-                  &response_type=code
+---
 
-┌────────────────────────────────────────────────────────────────┐
-│ Step 5: OAuth Authorize (Retry)                                │
-└────────────────────────────────────────────────────────────────┘
+**Step 4: Backend Authenticates User and Sets Global SSO Cookie**
 
-User Browser → accounts.shelfex.com/api/v1/oauth/authorize
-               (now has accounts_session cookie!)
-                    │
-                    ▼
-OAuth Controller: Check cookies.accounts_session
-                    │
-                    ▼
-                ✅ FOUND
-                    │
-                    ▼
-  1. Verify JWT signature ✅
-  2. Extract userId from token
-  3. Generate auth code: "xyz_abc_123"
-  4. Store in database:
-     - code: "xyz_abc_123"
-     - userId: "user-id-from-token"
-     - clientId: "shelfscan"
-     - redirectUri: "https://shelfscan.com/callback"
-     - expiresAt: now + 10 minutes
-     - isUsed: false
-  5. Redirect (302): https://shelfscan.com/callback?code=xyz_abc_123
+--> **Backend Validation Process:**
 
-┌────────────────────────────────────────────────────────────────┐
-│ Step 6: ShelfScan Callback                                     │
-└────────────────────────────────────────────────────────────────┘
+   1. **Extract Request Body:** Backend receives the identifier, password, and OAuth parameters.
+   
+   2. **Find User in Database:**
+      - Queries the `users` table where `email = 'john@example.com'` OR `username = 'john@example.com'`
+      - Result: User record found with ID `user-123-abc-def`
+   
+   3. **Verify Password:**
+      - Retrieves the stored bcrypt hash from the user record
+      - Uses `bcrypt.compare(password, storedHash)` to verify the password
+      - Result: ✅ **VALID** (password matches)
+   
+   4. **Check OAuth Flow Detection:**
+      - Backend checks if `client_id` parameter exists in the request
+      - Result: ✅ **YES** (this is an OAuth flow from shelfscan)
 
-User Browser → shelfscan.com/callback?code=xyz_abc_123
-                    │
-                    ▼
-ShelfScan Backend:
-  POST accounts.shelfex.com/api/v1/oauth/token
-  {
-    "code": "xyz_abc_123",
-    "client_id": "shelfscan",
-    "client_secret": "shelfscan-secret-key",
-    "redirect_uri": "https://shelfscan.com/callback",
-    "grant_type": "authorization_code"
-  }
-                    │
-                    ▼
-OAuth Token Controller:
-  1. Validate client_id & client_secret ✅
-  2. Find auth code in database ✅
-  3. Verify code not used ✅
-  4. Verify code not expired ✅
-  5. Verify redirect_uri matches ✅
-  6. Mark code as used
-  7. Generate tokens:
-     - access_token (userId, email, emailVerified)
-     - refresh_token (userId, tokenId)
-     - id_token (userId, email, name, emailVerified)
-  8. Return tokens
+--> **Generate Global SSO Session Token:**
+   - Backend generates a JWT token for `accounts_session` cookie
+   - **JWT Payload:**
+     ```json
+     {
+       "userId": "user-123-abc-def",
+       "email": "john@example.com",
+       "emailVerified": true,
+       "iss": "accounts.shelfexecution.com",
+       "aud": "shelfex-services",
+       "iat": 1702123456,
+       "exp": 1702209856
+     }
+     ```
+   - Expiry: 1 day (86400 seconds)
 
-ShelfScan Backend receives:
+--> **Generate Local Accounts Tokens:**
+   - Backend also generates `access_token` and `refresh_token` for the accounts service itself
+   - These tokens allow the user to access their account settings, profile, etc.
+
+--> **Set Cookies:**
+   1. **accounts_session** (Global SSO Cookie):
+      ```
+      Domain: .shelfexecution.com
+      Path: /
+      HttpOnly: true
+      Secure: true (in production)
+      SameSite: Lax
+      Max-Age: 86400 (1 day)
+      ```
+   
+   2. **access_token** (Local to accounts.shelfexecution.com):
+      ```
+      Domain: accounts.shelfexecution.com
+      Path: /
+      HttpOnly: true
+      Secure: true
+      SameSite: Lax
+      Max-Age: 86400 (1 day)
+      ```
+   
+   3. **refresh_token** (Local to accounts.shelfexecution.com):
+      ```
+      Domain: accounts.shelfexecution.com
+      Path: /
+      HttpOnly: true
+      Secure: true
+      SameSite: Lax
+      Max-Age: 2592000 (30 days)
+      ```
+
+--> **Store Refresh Token in Database:**
+   - Backend hashes the refresh token using SHA256
+   - Inserts a new record in the `refresh_tokens` table:
+     ```json
+     {
+       "id": "token-abc-123",
+       "userId": "user-123-abc-def",
+       "tokenHash": "sha256_hash_of_refresh_token",
+       "expiresAt": "2025-01-08T10:30:00.000Z",
+       "isRevoked": false,
+       "createdAt": "2025-12-09T10:30:00.000Z",
+       "lastUsedAt": null
+     }
+     ```
+
+--> **Redirect Back to OAuth Authorize Endpoint:** Since this was an OAuth flow, the backend sends a **302 Redirect** response to:
+```
+https://accounts.shelfexecution.com/api/v1/oauth/authorize?client_id=shelfscan&redirect_uri=https://shelfscan.shelfexecution.com/callback&response_type=code&state=xyz_random_csrf_string_abc123
+```
+
+**Important:** The user's browser now has the `accounts_session` cookie set, so this time the authorization endpoint will find it!
+
+---
+
+**Step 5: Authorization Endpoint Generates Authorization Code**
+
+--> **User's Browser:** Follows the redirect and sends a GET request to:
+```
+https://accounts.shelfexecution.com/api/v1/oauth/authorize?client_id=shelfscan&redirect_uri=https://shelfscan.shelfexecution.com/callback&response_type=code&state=xyz_random_csrf_string_abc123
+```
+
+**This Time:** The browser includes the `accounts_session` cookie in the request!
+
+--> **Backend Checks for Global SSO Cookie:**
+   - Backend reads the `accounts_session` cookie from the request
+   - Result: ✅ **FOUND**
+
+--> **Verify JWT Token:**
+   - Backend verifies the JWT signature using the `ACCESS_TOKEN_SECRET`
+   - Checks if the token has expired
+   - Extracts the `userId` from the payload
+   - Result: ✅ **VALID** (user is authenticated as `user-123-abc-def`)
+
+--> **Generate Authorization Code:**
+   - Backend generates a random 32-byte authorization code using `crypto.randomBytes(32)`
+   - Encodes it as base64url: `abc123xyz_secret_code_random`
+   - This code is temporary and one-time use only
+
+--> **Store Authorization Code in Database:**
+   - Backend inserts a new record in the `auth_codes` table:
+     ```json
+     {
+       "id": "auth-code-uuid-123",
+       "code": "abc123xyz_secret_code_random",
+       "userId": "user-123-abc-def",
+       "clientId": "shelfscan",
+       "redirectUri": "https://shelfscan.shelfexecution.com/callback",
+       "expiresAt": "2025-12-09T10:40:00.000Z",
+       "isUsed": false,
+       "createdAt": "2025-12-09T10:30:00.000Z"
+     }
+     ```
+   - **Note:** The code expires in 10 minutes and can only be used once
+
+--> **Redirect to Client App's Callback:** Backend sends a **302 Redirect** response to:
+```
+https://shelfscan.shelfexecution.com/callback?code=abc123xyz_secret_code_random&state=xyz_random_csrf_string_abc123
+```
+
+---
+
+**Step 6: ShelfScan Callback - Server-to-Server Token Exchange**
+
+--> **User's Browser:** Follows the redirect and sends a GET request to:
+```
+https://shelfscan.shelfexecution.com/callback?code=abc123xyz_secret_code_random&state=xyz_random_csrf_string_abc123
+```
+
+--> **ShelfScan Backend Receives Request:**
+   - This is a Next.js API route (e.g., `/app/callback/page.tsx` or `/pages/api/callback.ts`)
+   - Does **NOT** render a page immediately
+   - Performs server-side validation and token exchange
+
+--> **Step 6.1: Verify State (CSRF Protection)**
+   - Backend extracts the `state` parameter from the URL: `xyz_random_csrf_string_abc123`
+   - Retrieves the original `state` value that was stored in Step 1 (from cookie or session)
+   - Compares the two values
+   - Result: ✅ **MATCH** (CSRF attack prevented)
+   - If they don't match, the request is rejected immediately
+
+--> **Step 6.2: Exchange Authorization Code for Tokens**
+   - ShelfScan's backend sends a **POST** request to the Accounts Service:
+
+**Request URL:**
+```
+https://accounts.shelfexecution.com/api/v1/oauth/token
+```
+
+**Request Headers:**
+```
+Content-Type: application/json
+```
+
+**Request Body:**
+```json
 {
-  "access_token": "eyJhbGci...",
-  "refresh_token": "eyJhbGci...",
-  "id_token": "eyJhbGci...",
+  "code": "abc123xyz_secret_code_random",
+  "client_id": "shelfscan",
+  "client_secret": "shelfscan_super_secret_key_12345",
+  "redirect_uri": "https://shelfscan.shelfexecution.com/callback",
+  "grant_type": "authorization_code"
+}
+```
+
+**Note:** The `client_secret` is stored securely in ShelfScan's backend environment variables. It's never exposed to the browser!
+
+---
+
+**Step 7: Accounts Service Validates and Issues Tokens**
+
+--> **Accounts Backend Validation Process:**
+
+   1. **Validate Client Credentials:**
+      - Query `client_apps` table where `client_id = 'shelfscan'`
+      - Retrieve the stored `client_secret` (bcrypt hash)
+      - Use `bcrypt.compare(provided_secret, stored_hash)` to verify
+      - Result: ✅ **VALID** (client is authenticated)
+   
+   2. **Find Authorization Code:**
+      - Query `auth_codes` table where `code = 'abc123xyz_secret_code_random'`
+      - Result: Code record found
+   
+   3. **Validate Authorization Code:**
+      - Check if `clientId` in the record matches `shelfscan` ✅
+      - Check if `isUsed = false` ✅ (not already used)
+      - Check if `expiresAt > NOW()` ✅ (not expired)
+      - Check if `redirectUri` matches the provided redirect_uri ✅
+      - Result: ✅ **ALL VALID**
+   
+   4. **Mark Code as Used:**
+      - Update the `auth_codes` record: `isUsed = true`
+      - This prevents replay attacks (code can't be used again)
+
+--> **Generate Tokens for ShelfScan:**
+
+   1. **Access Token (JWT):**
+      - **Payload:**
+        ```json
+        {
+          "userId": "user-123-abc-def",
+          "email": "john@example.com",
+          "emailVerified": true,
+          "iss": "accounts.shelfexecution.com",
+          "aud": "shelfex-services",
+          "iat": 1702123456,
+          "exp": 1702209856
+        }
+        ```
+      - Signed with `ACCESS_TOKEN_SECRET`
+      - Expiry: 1 day
+   
+   2. **Refresh Token (JWT):**
+      - Backend generates a unique token ID for tracking
+      - **Payload:**
+        ```json
+        {
+          "userId": "user-123-abc-def",
+          "tokenId": "refresh-token-id-456",
+          "iss": "accounts.shelfexecution.com",
+          "iat": 1702123456,
+          "exp": 1704715456
+        }
+        ```
+      - Signed with `REFRESH_TOKEN_SECRET`
+      - Expiry: 30 days
+      - Backend hashes this token and stores it in `refresh_tokens` table
+   
+   3. **ID Token (OpenID Connect - JWT):**
+      - **Payload:**
+        ```json
+        {
+          "userId": "user-123-abc-def",
+          "email": "john@example.com",
+          "name": "John Doe",
+          "emailVerified": true,
+          "iss": "accounts.shelfexecution.com",
+          "aud": "shelfex-services",
+          "iat": 1702123456,
+          "exp": 1702209856
+        }
+        ```
+      - Contains user profile information
+      - Client can decode this (it's not encrypted, just signed)
+      - Used to display user info without additional API calls
+
+--> **Return Token Response:**
+
+**HTTP Status:** 200 OK
+
+**Response Body:**
+```json
+{
+  "success": true,
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiJ1c2VyLTEyMy1hYmMtZGVmIiwiZW1haWwiOiJqb2huQGV4YW1wbGUuY29tIiwiZW1haWxWZXJpZmllZCI6dHJ1ZSwiaXNzIjoiYWNjb3VudHMuc2hlbGZleGVjdXRpb24uY29tIiwiYXVkIjoic2hlbGZleC1zZXJ2aWNlcyIsImlhdCI6MTcwMjEyMzQ1NiwiZXhwIjoxNzAyMjA5ODU2fQ...",
+  "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiJ1c2VyLTEyMy1hYmMtZGVmIiwidG9rZW5JZCI6InJlZnJlc2gtdG9rZW4taWQtNDU2IiwiaXNzIjoiYWNjb3VudHMuc2hlbGZleGVjdXRpb24uY29tIiwiaWF0IjoxNzAyMTIzNDU2LCJleHAiOjE3MDQ3MTU0NTZ9...",
+  "id_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiJ1c2VyLTEyMy1hYmMtZGVmIiwiZW1haWwiOiJqb2huQGV4YW1wbGUuY29tIiwibmFtZSI6IkpvaG4gRG9lIiwiZW1haWxWZXJpZmllZCI6dHJ1ZSwiaXNzIjoiYWNjb3VudHMuc2hlbGZleGVjdXRpb24uY29tIiwiYXVkIjoic2hlbGZleC1zZXJ2aWNlcyIsImlhdCI6MTcwMjEyMzQ1NiwiZXhwIjoxNzAyMjA5ODU2fQ...",
   "token_type": "Bearer",
   "expires_in": 86400
 }
-
-ShelfScan Backend:
-  1. Decode id_token to get user info
-  2. Set shelfscan_session cookie
-  3. Redirect user to /dashboard
-
-┌────────────────────────────────────────────────────────────────┐
-│ Step 7: User Sees Dashboard                                    │
-└────────────────────────────────────────────────────────────────┘
-
-User Browser → shelfscan.com/dashboard
-               (has shelfscan_session cookie)
-                    │
-                    ▼
-ShelfScan Middleware: Validates session ✅
-                    │
-                    ▼
-Render Dashboard: "Welcome, John!"
-
-✅ LOGIN COMPLETE
 ```
-
-**Total Redirects:** 5
-**Total Time:** ~2-3 seconds
 
 ---
 
-### Scenario 2: SSO (User Already Logged In)
+**Step 8: ShelfScan Establishes Local Session**
 
-**Context:** User just finished logging into ShelfScan (Scenario 1). Now they open a new tab and visit `shelfmuse.com`.
+--> **ShelfScan Backend Receives Tokens:**
+   - Parses the JSON response from the Accounts Service
+   - Now has access to `access_token`, `refresh_token`, and `id_token`
 
+--> **Decode ID Token (Optional):**
+   - ShelfScan can decode the `id_token` without verifying the signature (it trusts the Accounts Service)
+   - Extracts user information: `userId`, `email`, `name`, `emailVerified`
+   - This can be used to display user info or store in ShelfScan's database
+
+--> **Set Local Session Cookies:**
+   - ShelfScan sets two HttpOnly cookies on its own domain:
+
+   1. **shelfscan_access_token:**
+      ```
+      Domain: shelfscan.shelfexecution.com
+      Path: /
+      HttpOnly: true
+      Secure: true
+      SameSite: Lax
+      Max-Age: 86400 (1 day)
+      Value: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+      ```
+   
+   2. **shelfscan_refresh_token:**
+      ```
+      Domain: shelfscan.shelfexecution.com
+      Path: /
+      HttpOnly: true
+      Secure: true
+      SameSite: Lax
+      Max-Age: 2592000 (30 days)
+      Value: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+      ```
+
+--> **Final Redirect to Dashboard:**
+   - ShelfScan sends a **302 Redirect** response to:
+     ```
+     https://shelfscan.shelfexecution.com/dashboard
+     ```
+
+---
+
+**Step 9: User Accesses ShelfScan Dashboard**
+
+--> **User's Browser:** Follows the redirect and sends a GET request to:
 ```
-┌────────────────────────────────────────────────────────────────┐
-│ Step 1: User Opens ShelfMuse                                   │
-└────────────────────────────────────────────────────────────────┘
+https://shelfscan.shelfexecution.com/dashboard
+```
 
-User Browser → shelfmuse.com/dashboard
-                    │
-                    ▼
-ShelfMuse Middleware: "No shelfmuse_session cookie"
-                    │
-                    ▼
-Redirect (302): accounts.shelfex.com/api/v1/oauth/authorize
-                ?client_id=shelfmuse
-                &redirect_uri=https://shelfmuse.com/callback
-                &response_type=code
+**This Time:** The browser includes the `shelfscan_access_token` cookie!
 
-┌────────────────────────────────────────────────────────────────┐
-│ Step 2: Accounts Finds Existing Session (SSO Magic!)           │
-└────────────────────────────────────────────────────────────────┘
+--> **ShelfScan Middleware Check:**
+   - Extracts the `shelfscan_access_token` cookie
+   - Verifies the JWT signature (using the same secret that signed it)
+   - Checks if the token has expired
+   - Extracts the `userId` from the payload
+   - Result: ✅ **VALID** (user is authenticated)
 
-User Browser → accounts.shelfex.com/api/v1/oauth/authorize
-               (still has accounts_session cookie from earlier!)
-                    │
-                    ▼
-OAuth Controller: Check cookies.accounts_session
-                    │
-                    ▼
-                ✅ FOUND!
-                    │
-                    ▼
-  1. Verify JWT ✅
-  2. Extract userId
-  3. ⚡ SKIP LOGIN SCREEN (user already authenticated)
-  4. Generate new auth code: "muse_code_456"
-  5. Store in database:
-     - code: "muse_code_456"
-     - clientId: "shelfmuse" (different app!)
-     - redirectUri: "https://shelfmuse.com/callback"
-  6. Redirect (302): https://shelfmuse.com/callback?code=muse_code_456
+--> **Render Dashboard:**
+   - ShelfScan fetches user-specific data from its database
+   - Renders the dashboard page with personalized content
+   - Display: "Welcome, John Doe!"
 
-┌────────────────────────────────────────────────────────────────┐
-│ Step 3: ShelfMuse Token Exchange                               │
-└────────────────────────────────────────────────────────────────┘
+**✅ LOGIN FLOW COMPLETE**
 
-ShelfMuse Backend:
-  POST accounts.shelfex.com/api/v1/oauth/token
-  {
-    "code": "muse_code_456",
-    "client_id": "shelfmuse",
-    "client_secret": "shelfmuse-secret-key", // Different secret!
-    "redirect_uri": "https://shelfmuse.com/callback",
-    "grant_type": "authorization_code"
+**Summary:**
+- **Total Redirects:** 5
+- **Pages Visited:** ShelfScan → Accounts OAuth → Accounts Login → Accounts OAuth → ShelfScan Callback → ShelfScan Dashboard
+- **Time:** ~2-3 seconds
+- **User Experience:** User had to enter credentials once
+
+---
+
+---
+
+### Scenario 2: SSO Magic - User Already Logged In (Visiting Another App)
+
+**Context:** User successfully logged into ShelfScan (completed Scenario 1). Now they open a new browser tab and visit `https://shelfmuse.shelfexecution.com/` for the first time. The `accounts_session` cookie still exists on `.shelfexecution.com` domain.
+
+---
+
+**Step 1: User Visits ShelfMuse**
+
+--> **User Action:** User types `https://shelfmuse.shelfexecution.com/` in a new tab and hits Enter.
+
+--> **What Happens:** Browser sends a GET request to ShelfMuse's server.
+
+--> **ShelfMuse NextJS Middleware Check:**
+   - Looking for: `shelfmuse_access_token` and `shelfmuse_refresh_token`
+   - Result: ❌ **NOT FOUND** (user has never visited ShelfMuse before)
+
+--> **ShelfMuse Middleware Action:**
+   - Generates a new random CSRF token (e.g., `muse_csrf_token_xyz789`)
+   - Stores this `state` value in a temporary cookie on ShelfMuse's domain
+   - Constructs the OAuth authorization URL with ShelfMuse-specific parameters:
+     - `client_id`: `shelfmuse` (different from shelfscan!)
+     - `redirect_uri`: `https://shelfmuse.shelfexecution.com/callback`
+     - `response_type`: `code`
+     - `state`: `muse_csrf_token_xyz789`
+
+--> **Redirect Response:** ShelfMuse sends a **302 Redirect** to:
+```
+https://accounts.shelfexecution.com/api/v1/oauth/authorize?client_id=shelfmuse&redirect_uri=https://shelfmuse.shelfexecution.com/callback&response_type=code&state=muse_csrf_token_xyz789
+```
+
+---
+
+**Step 2: Authorization Endpoint Finds Existing Session (SSO Magic!)**
+
+--> **User's Browser:** Follows the redirect and sends a GET request to:
+```
+https://accounts.shelfexecution.com/api/v1/oauth/authorize?client_id=shelfmuse&redirect_uri=https://shelfmuse.shelfexecution.com/callback&response_type=code&state=muse_csrf_token_xyz789
+```
+
+**Important:** The browser automatically includes the `accounts_session` cookie (from Scenario 1) because it's set on `.shelfexecution.com` domain!
+
+--> **Accounts Backend Validation:**
+
+   1. **Validate Client ID:**
+      - Queries `client_apps` table for `client_id=shelfmuse`
+      - Result: ✅ **VALID** (shelfmuse is registered)
+   
+   2. **Validate Redirect URI:**
+      - Checks if `https://shelfmuse.shelfexecution.com/callback` is in shelfmuse's `allowedRedirectUris`
+      - Result: ✅ **VALID**
+   
+   3. **Check for Global SSO Cookie:**
+      - Backend looks for `accounts_session` cookie
+      - Result: ✅ **FOUND!** (User logged in earlier via ShelfScan)
+
+--> **Verify JWT Token:**
+   - Backend verifies the JWT signature
+   - Checks expiration
+   - Extracts `userId`: `user-123-abc-def`
+   - Result: ✅ **VALID** (user is already authenticated!)
+
+**🎉 SSO MAGIC:** The user doesn't need to enter credentials again! The accounts service recognizes them from the global cookie.
+
+--> **Generate New Authorization Code (for ShelfMuse):**
+   - Backend generates a fresh authorization code: `muse_auth_code_def456`
+   - Stores it in `auth_codes` table:
+     ```json
+     {
+       "id": "auth-code-uuid-456",
+       "code": "muse_auth_code_def456",
+       "userId": "user-123-abc-def",
+       "clientId": "shelfmuse",
+       "redirectUri": "https://shelfmuse.shelfexecution.com/callback",
+       "expiresAt": "2025-12-09T10:50:00.000Z",
+       "isUsed": false,
+       "createdAt": "2025-12-09T10:40:00.000Z"
+     }
+     ```
+
+--> **Immediate Redirect (No Login Page!):** Backend sends a **302 Redirect** to:
+```
+https://shelfmuse.shelfexecution.com/callback?code=muse_auth_code_def456&state=muse_csrf_token_xyz789
+```
+
+**Note:** User never saw the login page! This is the essence of Single Sign-On.
+
+---
+
+**Step 3: ShelfMuse Callback - Token Exchange**
+
+--> **User's Browser:** Follows the redirect to:
+```
+https://shelfmuse.shelfexecution.com/callback?code=muse_auth_code_def456&state=muse_csrf_token_xyz789
+```
+
+--> **ShelfMuse Backend:**
+
+   1. **Verify State:**
+      - Compares received `state` with stored value
+      - Result: ✅ **MATCH**
+   
+   2. **Exchange Code for Tokens:**
+      - Sends POST request to `https://accounts.shelfexecution.com/api/v1/oauth/token`
+      - **Body:**
+        ```json
+        {
+          "code": "muse_auth_code_def456",
+          "client_id": "shelfmuse",
+          "client_secret": "shelfmuse_different_secret_67890",
+          "redirect_uri": "https://shelfmuse.shelfexecution.com/callback",
+          "grant_type": "authorization_code"
+        }
+        ```
+
+--> **Accounts Service Validates and Returns Tokens:**
+   - Validates the code (same process as Scenario 1, Step 7)
+   - Marks code as used
+   - Generates fresh tokens for ShelfMuse
+   - Returns:
+     ```json
+     {
+       "success": true,
+       "access_token": "eyJhbGci...new_token_for_shelfmuse...",
+       "refresh_token": "eyJhbGci...new_refresh_for_shelfmuse...",
+       "id_token": "eyJhbGci...user_info_token...",
+       "token_type": "Bearer",
+       "expires_in": 86400
+     }
+     ```
+
+--> **ShelfMuse Sets Local Cookies:**
+   - Sets `shelfmuse_access_token` and `shelfmuse_refresh_token` cookies
+   - Redirects to: `https://shelfmuse.shelfexecution.com/dashboard`
+
+---
+
+**Step 4: User Accesses ShelfMuse Dashboard**
+
+--> **User's Browser:** Loads `https://shelfmuse.shelfexecution.com/dashboard` with the new cookies.
+
+--> **ShelfMuse Middleware:**
+   - Validates the `shelfmuse_access_token`
+   - Result: ✅ **VALID**
+
+--> **Render Dashboard:**
+   - Display: "Welcome, John Doe!"
+
+**✅ SSO COMPLETE (SEAMLESS LOGIN)**
+
+**Summary:**
+- **Total Redirects:** 3
+- **Pages Visited:** ShelfMuse → Accounts OAuth → ShelfMuse Callback → ShelfMuse Dashboard
+- **Time:** ~500ms (nearly instant!)
+- **User Experience:** NO password prompt! Seamless authentication
+- **Key Difference:** The `accounts_session` cookie enabled silent authentication
+
+---
+
+---
+
+### Scenario 3: Direct Visit to Accounts Service (No OAuth Flow)
+
+**Context:** User directly visits `https://accounts.shelfexecution.com/` by typing it in the browser or clicking a bookmark. No client app is involved.
+
+---
+
+**Step 1: User Visits Accounts Home Page**
+
+--> **User Action:** User navigates to `https://accounts.shelfexecution.com/`
+
+--> **What Happens:** Browser sends a GET request to the accounts service.
+
+--> **Accounts Backend Check:**
+   - This is not an OAuth authorization request (no `client_id` in URL)
+   - This is a regular page visit to the accounts service itself
+   - Backend checks for `access_token` cookie (NOT `accounts_session`)
+   
+--> **Two Possible Cases:**
+
+**Case A: User is NOT logged into Accounts**
+   - `access_token` cookie not found
+   - Backend redirects to: `https://accounts.shelfexecution.com/login`
+   - User sees login page without any OAuth parameters
+   - User can login to manage their account settings, profile, etc.
+
+**Case B: User is Already Logged into Accounts**
+   - `access_token` cookie found and valid
+   - Backend renders the user's account dashboard
+   - User can see: Profile settings, connected apps, security settings, etc.
+
+---
+
+**Step 2: User Logs In (if Case A)**
+
+--> **User Submits Login Form:**
+   - Enters credentials and clicks "Login"
+   - Frontend sends POST to `/api/v1/auth/login`
+   - **Body:**
+     ```json
+     {
+       "identifier": "john@example.com",
+       "password": "SecurePass123!"
+     }
+     ```
+   - **Note:** No `client_id` parameter! This is NOT an OAuth flow.
+
+--> **Backend Authenticates:**
+   - Validates credentials (same process as before)
+   - Detects that `client_id` is NOT present
+   - **Decision:** This is a direct login to accounts service (not OAuth)
+
+--> **Backend Sets Cookies (All Local to Accounts):**
+   1. `accounts_session` - Global SSO cookie (domain: `.shelfexecution.com`)
+   2. `access_token` - Local to accounts service
+   3. `refresh_token` - Local to accounts service
+
+--> **Stores Refresh Token:**
+   - Hashes and stores in `refresh_tokens` table
+
+--> **Response:**
+   - Instead of redirecting to OAuth authorize endpoint, backend returns:
+     ```json
+     {
+       "success": true,
+       "message": "Login successful",
+       "data": {
+         "user": {
+           "id": "user-123-abc-def",
+           "email": "john@example.com",
+           "name": "John Doe",
+           "emailVerified": true
+         },
+         "accessToken": "eyJhbGci...",
+         "refreshToken": "eyJhbGci..."
+       }
+     }
+     ```
+
+--> **Frontend Behavior:**
+   - Stores user info in state/context
+   - Redirects user to: `https://accounts.shelfexecution.com/dashboard`
+   - User can now manage their account, view connected apps, change password, etc.
+
+**Key Points:**
+- User logged into accounts service itself (not via OAuth)
+- Both global `accounts_session` AND local `access_token` cookies are set
+- No authorization code generated (not needed)
+- User can now SSO into any client app (has global cookie)
+
+---
+
+---
+
+### Scenario 4: Zombie Session - Local Session Survives Without Global Session
+
+**Context:** User was logged into ShelfScan. They cleared their cookies in the browser settings and checked "Clear cookies from the last hour." The global `accounts_session` cookie got deleted, but the local `shelfscan_access_token` cookie is still valid (expires in 1 day, created 2 hours ago). Now they revisit ShelfScan.
+
+---
+
+**Step 1: User Visits ShelfScan Dashboard**
+
+--> **User Action:** User clicks a bookmark to `https://shelfscan.shelfexecution.com/dashboard`
+
+--> **What Happens:** Browser sends a GET request.
+
+--> **ShelfScan Middleware Check:**
+   - Looks for `shelfscan_access_token` cookie
+   - Result: ✅ **FOUND** (local session still exists)
+
+--> **Validate Local Token:**
+   - Middleware extracts the JWT from the cookie
+   - Verifies signature using the token secret
+   - Checks expiration: `exp: 1702209856` (still valid for 22 more hours)
+   - Extracts `userId`: `user-123-abc-def`
+   - Result: ✅ **VALID**
+
+--> **Grant Access:**
+   - User is authenticated on ShelfScan
+   - No need to contact the accounts service!
+   - Render dashboard: "Welcome, John Doe!"
+
+**✅ ACCESS GRANTED (ZOMBIE SESSION)**
+
+**Key Point:** Each client app (ShelfScan, ShelfMuse) can validate its own JWT tokens independently without contacting the accounts service. The token contains all necessary information (userId, email, expiration).
+
+---
+
+**What About Visiting a Different App?**
+
+--> **User Action:** User now opens a new tab and visits `https://shelfmuse.shelfexecution.com/`
+
+--> **ShelfMuse Middleware:**
+   - Looks for `shelfmuse_access_token`
+   - Result: ❌ **NOT FOUND**
+
+--> **Redirect to OAuth:**
+   - ShelfMuse redirects to accounts service: `/oauth/authorize?client_id=shelfmuse&...`
+
+--> **Accounts Service Check:**
+   - Looks for `accounts_session` cookie
+   - Result: ❌ **NOT FOUND** (user cleared it!)
+
+--> **Redirect to Login:**
+   - User is sent to: `https://accounts.shelfexecution.com/login?client_id=shelfmuse&...`
+   - User must enter credentials again
+
+**Summary:**
+- ShelfScan: ✅ Still works (local token valid)
+- ShelfMuse: ❌ Requires re-login (no global session)
+- This is why it's called a "Zombie Session" - the local session outlives the global session
+
+---
+
+**When Does Zombie Session End?**
+
+--> **Local Token Expires:**
+   - After 1 day (or whatever expiry is set), the `shelfscan_access_token` JWT expires
+   - User visits ShelfScan dashboard
+   - Middleware validates token and finds: `exp < NOW()`
+   - Result: ❌ **EXPIRED**
+
+--> **Redirect to OAuth:**
+   - ShelfScan redirects: `/oauth/authorize?client_id=shelfscan&...`
+   - Accounts service checks for `accounts_session`
+   - If missing: User sees login page
+   - If present: SSO magic happens (code generated, token issued)
+
+---
+
+---
+
+### Scenario 5: User Logged Out of Accounts, Then Visits ShelfScan
+
+**Context:** User was fully logged into both Accounts and ShelfScan. They visited `https://accounts.shelfexecution.com/dashboard` and clicked the "Logout" button. This logout happened on the accounts service. Now they try to visit ShelfScan.
+
+---
+
+**Step 1: User Logs Out on Accounts Service**
+
+--> **User Action:** On the accounts dashboard, user clicks "Logout" button.
+
+--> **Frontend Behavior:**
+   - Sends POST request to: `https://accounts.shelfexecution.com/api/v1/auth/logout`
+   - May include the `refresh_token` in the body or rely on the cookie
+
+--> **Backend Logout Process:**
+
+   1. **Extract Refresh Token:**
+      - Backend reads the `refresh_token` from the cookie or request body
+   
+   2. **Hash and Find Token:**
+      - Hashes the token using SHA256
+      - Queries `refresh_tokens` table where `tokenHash = hashed_value`
+      - Finds the record
+   
+   3. **Revoke Token:**
+      - Updates the record: `isRevoked = true`
+      - This prevents the refresh token from being used again
+   
+   4. **Clear Cookies:**
+      - Backend sends response with `Set-Cookie` headers to clear:
+        - `accounts_session` (set to empty, max-age=0)
+        - `access_token` (set to empty, max-age=0)
+        - `refresh_token` (set to empty, max-age=0)
+
+--> **Response:**
+   ```json
+   {
+     "success": true,
+     "message": "Logged out successfully"
+   }
+   ```
+
+--> **Frontend Behavior:**
+   - Redirects user to: `https://accounts.shelfexecution.com/login`
+   - User is now logged out of the accounts service
+
+**Important:** ShelfScan still has its local tokens (`shelfscan_access_token`, `shelfscan_refresh_token`)! These were NOT cleared.
+
+---
+
+**Step 2: User Visits ShelfScan**
+
+--> **User Action:** User opens a new tab and visits `https://shelfscan.shelfexecution.com/dashboard`
+
+--> **ShelfScan Middleware:**
+   - Checks for `shelfscan_access_token` cookie
+   - Result: ✅ **FOUND** (still exists!)
+
+--> **Validate Token:**
+   - Verifies JWT signature
+   - Checks expiration
+   - Result: ✅ **VALID**
+
+--> **Grant Access:**
+   - User is still logged into ShelfScan!
+   - Dashboard renders: "Welcome, John Doe!"
+
+**Surprise:** User is still logged into ShelfScan even though they logged out of accounts!
+
+**Why?** Because:
+1. JWT tokens are stateless - ShelfScan doesn't contact accounts to verify each request
+2. The logout only cleared cookies on the `accounts.shelfexecution.com` domain
+3. ShelfScan's cookies are on a different domain: `shelfscan.shelfexecution.com`
+4. The browser didn't delete ShelfScan's cookies
+
+---
+
+**Step 3: User Visits Another App (ShelfMuse)**
+
+--> **User Action:** User opens `https://shelfmuse.shelfexecution.com/`
+
+--> **ShelfMuse Middleware:**
+   - Checks for `shelfmuse_access_token`
+   - Result: ❌ **NOT FOUND**
+
+--> **Redirect to OAuth:**
+   - ShelfMuse redirects to: `/oauth/authorize?client_id=shelfmuse&...`
+
+--> **Accounts Service:**
+   - Checks for `accounts_session` cookie
+   - Result: ❌ **NOT FOUND** (cleared during logout!)
+
+--> **Redirect to Login:**
+   - User sees login page: `https://accounts.shelfexecution.com/login?client_id=shelfmuse&...`
+   - Must enter credentials again
+
+**Result:**
+- ShelfScan: ✅ Still logged in (zombie session)
+- ShelfMuse: ❌ Requires login (no global session)
+- Accounts: ❌ Logged out
+
+---
+
+**Step 4: What If ShelfScan Token Expires?**
+
+--> **Later:** User's `shelfscan_access_token` finally expires (after 1 day).
+
+--> **User Visits ShelfScan:**
+   - Middleware checks token
+   - Result: ❌ **EXPIRED**
+
+--> **Token Refresh Attempt:**
+   - ShelfScan's frontend or middleware attempts to refresh the token
+   - Sends request to accounts service: `POST /api/v1/auth/refresh`
+   - Includes `shelfscan_refresh_token` (which is still valid for 30 days)
+
+--> **Accounts Backend:**
+   - Hashes the refresh token
+   - Queries `refresh_tokens` table
+   - Finds the record BUT: `isRevoked = true` (revoked during logout!)
+   - Result: ❌ **REVOKED**
+
+--> **Response:**
+   ```json
+   {
+     "success": false,
+     "message": "Refresh token has been revoked"
+   }
+   ```
+
+--> **ShelfScan Frontend:**
+   - Refresh failed
+   - Clears local cookies
+   - Redirects to OAuth: `/oauth/authorize?client_id=shelfscan&...`
+   - User eventually sees login page
+
+**Final State:**
+- User is now fully logged out from all apps
+- Must re-authenticate to access any service
+
+---
+
+**How to Implement Proper Global Logout:**
+
+To immediately log user out of ALL apps:
+
+1. **Backend:** When user clicks logout, iterate through all active sessions and revoke all refresh tokens for this user
+2. **Frontend:** After logout, redirect to a "logged out" page with a list of client apps
+3. **Client Apps:** Each app should implement a logout endpoint that clears local cookies
+4. **Accounts Service:** Can use hidden iframes to hit each client app's logout endpoint:
+   ```html
+   <iframe src="https://shelfscan.shelfexecution.com/logout-silent" style="display:none"></iframe>
+   <iframe src="https://shelfmuse.shelfexecution.com/logout-silent" style="display:none"></iframe>
+   ```
+5. **Token Expiry:** Use shorter access token expiry (e.g., 15 minutes) so zombie sessions don't last long
+
+---
+
+---
+
+### Scenario 6: Token Refresh Flow (Access Token Expired)
+
+**Context:** User is logged into ShelfScan. Their `shelfscan_access_token` expired (after 1 day), but their `shelfscan_refresh_token` is still valid (30-day expiry). User tries to access a protected page.
+
+---
+
+**Step 1: User Accesses Protected Resource**
+
+--> **User Action:** User visits `https://shelfscan.shelfexecution.com/profile`
+
+--> **ShelfScan Middleware:**
+   - Extracts `shelfscan_access_token` from cookie
+   - Verifies signature: ✅
+   - Checks expiration: ❌ **EXPIRED** (exp < NOW)
+
+--> **Middleware Decision:**
+   - Don't immediately redirect to login
+   - Attempt to refresh the token using the refresh token
+
+---
+
+**Step 2: Automatic Token Refresh**
+
+--> **ShelfScan Backend Action:**
+   - Extracts `shelfscan_refresh_token` from cookie
+   - Sends POST request to: `https://accounts.shelfexecution.com/api/v1/auth/refresh`
+
+**Request Headers:**
+```
+Content-Type: application/json
+Cookie: refresh_token=eyJhbGci...
+```
+
+**Request Body (optional):**
+```json
+{
+  "refreshToken": "eyJhbGci..."
+}
+```
+
+**Note:** The refresh token can be sent in cookie OR body. Backend checks both.
+
+---
+
+**Step 3: Accounts Service Validates Refresh Token**
+
+--> **Backend Process:**
+
+   1. **Extract Refresh Token:**
+      - Read from cookie or request body
+      - Result: Token found
+   
+   2. **Verify JWT Signature:**
+      - Verify using `REFRESH_TOKEN_SECRET`
+      - Result: ✅ **VALID**
+   
+   3. **Extract Token ID:**
+      - From JWT payload: `tokenId: "refresh-token-id-456"`
+   
+   4. **Hash the Token:**
+      - Use SHA256 to hash the full refresh token
+      - Result: `sha256_hash_value`
+   
+   5. **Find in Database:**
+      - Query `refresh_tokens` table where `tokenHash = sha256_hash_value`
+      - Result: Record found
+   
+   6. **Validate Token Status:**
+      - Check `isRevoked`: ✅ `false` (not revoked)
+      - Check `expiresAt`: ✅ `> NOW()` (not expired)
+      - Result: ✅ **VALID**
+   
+   7. **Update Last Used:**
+      - Update record: `lastUsedAt = NOW()`
+      - This helps track token usage patterns
+
+--> **Generate New Access Token:**
+   - Backend retrieves user info from database using `userId`
+   - Generates a fresh access token (JWT)
+   - **Payload:**
+     ```json
+     {
+       "userId": "user-123-abc-def",
+       "email": "john@example.com",
+       "emailVerified": true,
+       "iss": "accounts.shelfexecution.com",
+       "aud": "shelfex-services",
+       "iat": 1702210000,
+       "exp": 1702296400
+     }
+     ```
+
+--> **Response:**
+
+**HTTP Status:** 200 OK
+
+**Response Body:**
+```json
+{
+  "success": true,
+  "message": "Token refreshed successfully",
+  "data": {
+    "accessToken": "eyJhbGci...new_fresh_token..."
   }
-                    │
-                    ▼
-OAuth Token Controller validates and returns tokens
-
-ShelfMuse Backend:
-  1. Decode id_token
-  2. Set shelfmuse_session cookie
-  3. Redirect to /dashboard
-
-┌────────────────────────────────────────────────────────────────┐
-│ Step 4: Instant Access!                                        │
-└────────────────────────────────────────────────────────────────┘
-
-User Browser → shelfmuse.com/dashboard
-                    │
-                    ▼
-Render Dashboard: "Welcome, John!"
-
-✅ SSO COMPLETE (No password prompt!)
+}
 ```
 
-**Total Redirects:** 3
-**Total Time:** ~500ms (seamless!)
+**Set-Cookie Header:**
+```
+Set-Cookie: access_token=eyJhbGci...new_fresh_token...; HttpOnly; Secure; SameSite=Lax; Max-Age=86400; Domain=accounts.shelfexecution.com; Path=/
+```
 
-**Key Difference from Scenario 1:**
-- ❌ NO login page shown
-- ❌ NO password entry
-- ✅ Instant authentication via `accounts_session` cookie
+**Note:** Only the access token is returned. The refresh token remains unchanged.
 
 ---
 
-### Scenario 3: Local Session Only (Zombie Session)
+**Step 4: ShelfScan Updates Local Token**
 
-**Context:** User is logged into ShelfScan. Their `accounts_session` cookie expired (or they cleared it), but `shelfscan_session` still exists.
+--> **ShelfScan Backend:**
+   - Receives the new access token
+   - Updates the `shelfscan_access_token` cookie with the new value
+   - Sets the cookie on the response going back to the user's browser
 
+--> **Retry Original Request:**
+   - ShelfScan can now retry the original request to `/profile`
+   - This time with a valid, fresh access token
+
+--> **Middleware Check:**
+   - Validates the new token
+   - Result: ✅ **VALID**
+
+--> **Render Page:**
+   - User sees their profile page
+   - User didn't notice anything (refresh happened in background!)
+
+**✅ SEAMLESS TOKEN REFRESH**
+
+**Key Point:** The user never saw a login page. The token was refreshed automatically using the refresh token.
+
+---
+
+**What If Refresh Token Is Also Expired/Revoked?**
+
+--> **Accounts Service Response:**
+```json
+{
+  "success": false,
+  "message": "Refresh token has been revoked"
+}
 ```
-┌────────────────────────────────────────────────────────────────┐
-│ Step 1: User Revisits ShelfScan                                │
-└────────────────────────────────────────────────────────────────┘
-
-User Browser → shelfscan.com/dashboard
-               Cookies:
-                 - shelfscan_session ✅ (still valid)
-                 - accounts_session ❌ (expired/deleted)
-                    │
-                    ▼
-ShelfScan Middleware:
-  1. Check shelfscan_session cookie ✅
-  2. Validate JWT signature ✅
-  3. Check expiry ✅
-  4. Allow access (no need to contact accounts server!)
-                    │
-                    ▼
-Render Dashboard: "Welcome, John!"
-
-✅ ACCESS GRANTED (No network call to accounts.shelfex.com)
+or
+```json
+{
+  "success": false,
+  "message": "Refresh token expired"
+}
 ```
 
-**Key Point:** Each client app can validate its own session tokens independently. The accounts server is only contacted when:
-1. User has no local session
-2. User's local session expired
-3. User explicitly logs out
+--> **ShelfScan Behavior:**
+   - Refresh failed
+   - Clear all local cookies
+   - Redirect to OAuth authorize endpoint
+   - User will eventually see login page and must re-authenticate
 
-This is why it's called a "Zombie Session" - the local app session survives even if the global accounts session dies.
+---
 
-**What Happens When Zombie Session Expires?**
+**Optional: Refresh Token Rotation**
 
+For enhanced security, you can implement refresh token rotation:
+
+1. On each refresh request, generate a NEW refresh token
+2. Return both new access token AND new refresh token
+3. Revoke the OLD refresh token
+4. If someone tries to use the old refresh token (possible theft), revoke all tokens for that user
+
+**Example Response with Rotation:**
+```json
+{
+  "success": true,
+  "message": "Token refreshed successfully",
+  "data": {
+    "accessToken": "eyJhbGci...new_access...",
+    "refreshToken": "eyJhbGci...new_refresh..."
+  }
+}
 ```
-User Browser → shelfscan.com/dashboard
-               shelfscan_session expired
-                    │
-                    ▼
-ShelfScan Middleware: JWT expired ❌
-                    │
-                    ▼
-Redirect: accounts.shelfex.com/api/v1/oauth/authorize
-          (restarts Scenario 1 or 2 depending on accounts_session)
-```
+
+This way, each refresh token can only be used once, making token theft much harder to exploit
 
 ---
 

@@ -5,7 +5,7 @@ import bcrypt from 'bcrypt';
 const ACCESS_TOKEN_SECRET: string = process.env.ACCESS_TOKEN_SECRET!;
 const REFRESH_TOKEN_SECRET: string = process.env.REFRESH_TOKEN_SECRET!;
 
-const ACCESS_TOKEN_EXPIRY = '1d';
+const ACCESS_TOKEN_EXPIRY = '1h';
 const REFRESH_TOKEN_EXPIRY = '30d';
 
 export interface AccessTokenPayload {

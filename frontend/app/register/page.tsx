@@ -1,8 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { authApi } from '@/lib/api';
+import { BsEye, BsEyeSlash } from 'react-icons/bs';
+import { AiOutlineLoading3Quarters } from 'react-icons/ai';
+import Image from 'next/image';
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -13,6 +16,22 @@ export default function RegisterPage() {
   const [name, setName] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [checkingAuth, setCheckingAuth] = useState(true);
+
+  // Check if user is already logged in
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        await authApi.getCurrentUser();
+        router.push('/success');
+      } catch (error) {
+        setCheckingAuth(false);
+      }
+    };
+
+    checkAuth();
+  }, [router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -36,123 +55,166 @@ export default function RegisterPage() {
     }
   };
 
+  if (checkingAuth) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center bg-white">
+        <AiOutlineLoading3Quarters className="h-6 w-6 animate-spin text-[#131313]" />
+      </div>
+    );
+  }
+
   return (
-    <div style={{ maxWidth: '400px', margin: '100px auto', padding: '20px' }}>
-      <h1 style={{ marginBottom: '20px' }}>Shelfex Accounts - Register</h1>
+    <div className="flex min-h-screen flex-col items-center justify-center bg-white">
+      <div className="h-16 w-full p-4 flex items-center justify-between">
+      </div>
+      <div className="flex flex-1 flex-col items-center justify-center bg-white">
+        <div className="-mt-12 w-[420px]">
+          <h3 className="font-roobert mb-4 text-[22px] leading-7 font-medium text-[#141414]">
+            Create your Shelfex account
+          </h3>
 
-      {error && (
-        <div style={{ 
-          padding: '10px', 
-          marginBottom: '20px', 
-          backgroundColor: '#fee', 
-          color: '#c00',
-          borderRadius: '4px'
-        }}>
-          {error}
+          <div className="mt-4">
+            {error && (
+              <div className="mb-6 rounded-lg border border-red-200 bg-red-50 p-4">
+                <div className="flex items-start">
+                  <svg
+                    className="mt-0.5 mr-2 h-5 w-5 text-red-600"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                    />
+                  </svg>
+                  <p className="text-sm text-red-800">{error}</p>
+                </div>
+              </div>
+            )}
+
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="relative">
+                <label
+                  htmlFor="email"
+                  className="mb-2 block text-[14px] leading-5 font-medium text-[#131313]"
+                >
+                  Email
+                </label>
+                <input
+                  id="email"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  autoComplete="email"
+                  className="w-full border border-gray-300 bg-white px-3 py-2 text-[14px] text-gray-900 transition-all duration-200 hover:border-black focus:border-2 focus:border-black/80 focus:outline-none"
+                  placeholder="you@example.com"
+                />
+              </div>
+
+              <div className="relative">
+                <label
+                  htmlFor="username"
+                  className="mb-2 block text-[14px] leading-5 font-medium text-[#131313]"
+                >
+                  Username <span className="text-xs text-gray-500">(optional)</span>
+                </label>
+                <input
+                  id="username"
+                  type="text"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  autoComplete="username"
+                  className="w-full border border-gray-300 bg-white px-3 py-2 text-[14px] text-gray-900 transition-all duration-200 hover:border-black focus:border-2 focus:border-black/80 focus:outline-none"
+                  placeholder="johndoe"
+                />
+              </div>
+
+              <div className="relative">
+                <label
+                  htmlFor="password"
+                  className="mb-2 block text-[14px] leading-5 font-medium text-[#131313]"
+                >
+                  Password
+                </label>
+                <div className="relative">
+                  <input
+                    id="password"
+                    type={showPassword ? "text" : "password"}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                    autoComplete="new-password"
+                    className="w-full border border-gray-300 bg-white px-3 py-2 text-[14px] text-gray-900 transition-all duration-200 hover:border-black focus:border-2 focus:border-black/80 focus:outline-none"
+                    placeholder="••••••••"
+                  />
+                  <button 
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="group absolute top-0 right-0 flex aspect-square h-full cursor-pointer items-center justify-center hover:bg-[#2b2b2b]"
+                  >
+                    {showPassword ? (
+                      <BsEyeSlash className="text-black group-hover:text-white" />
+                    ) : (
+                      <BsEye className="text-black group-hover:text-white" />
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              <div className="relative">
+                <label
+                  htmlFor="name"
+                  className="mb-2 block text-[14px] leading-5 font-medium text-[#131313]"
+                >
+                  Full Name <span className="text-xs text-gray-500">(optional)</span>
+                </label>
+                <input
+                  id="name"
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  autoComplete="name"
+                  className="w-full border border-gray-300 bg-white px-3 py-2 text-[14px] text-gray-900 transition-all duration-200 hover:border-black focus:border-2 focus:border-black/80 focus:outline-none"
+                  placeholder="John Doe"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="mt-2 w-full transform cursor-pointer bg-[#131313] px-2.5 py-3 text-[14px] font-medium text-white shadow-md transition-all duration-200 hover:bg-[#2b2b2b] disabled:transform-none disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:shadow-md"
+              >
+                {loading ? (
+                  <span className="flex items-center justify-center">
+                    <AiOutlineLoading3Quarters className='animate-spin' />
+                    <span className="ml-2">Creating Account...</span>
+                  </span>
+                ) : (
+                  'Create Account'
+                )}
+              </button>
+            </form>
+
+            <div className="mt-5">
+              <p className="group block w-max cursor-pointer text-[14px] font-medium text-[#131313]">
+                Already have an account?{' '}
+                <a href="/login" className="text-purple-800">
+                  Sign in
+                </a>
+              </p>
+            </div>
+            <div>
+              <p className="group block w-max cursor-pointer text-[14px] font-medium text-[#131313]">
+                By continuing, you agree to our <span className='text-purple-800'>Terms</span>{' '}
+                and <span className='text-purple-800'>Privacy Policy</span>.
+              </p>
+            </div>
+          </div>
         </div>
-      )}
-
-      <form onSubmit={handleSubmit}>
-        <div style={{ marginBottom: '15px' }}>
-          <label style={{ display: 'block', marginBottom: '5px' }}>
-            Email <span style={{ color: 'red' }}>*</span>
-          </label>
-          <input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-            autoComplete="email"
-            style={{
-              width: '100%',
-              padding: '8px',
-              border: '1px solid #ccc',
-              borderRadius: '4px',
-            }}
-            placeholder="you@example.com"
-          />
-        </div>
-
-        <div style={{ marginBottom: '15px' }}>
-          <label style={{ display: 'block', marginBottom: '5px' }}>
-            Username <span style={{ fontSize: '12px', color: '#666' }}>(optional)</span>
-          </label>
-          <input
-            type="text"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            autoComplete="username"
-            style={{
-              width: '100%',
-              padding: '8px',
-              border: '1px solid #ccc',
-              borderRadius: '4px',
-            }}
-            placeholder="johndoe"
-          />
-        </div>
-
-        <div style={{ marginBottom: '15px' }}>
-          <label style={{ display: 'block', marginBottom: '5px' }}>
-            Password <span style={{ color: 'red' }}>*</span>
-          </label>
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-            autoComplete="new-password"
-            style={{
-              width: '100%',
-              padding: '8px',
-              border: '1px solid #ccc',
-              borderRadius: '4px',
-            }}
-            placeholder="Enter a strong password"
-          />
-        </div>
-
-        <div style={{ marginBottom: '20px' }}>
-          <label style={{ display: 'block', marginBottom: '5px' }}>
-            Full Name <span style={{ fontSize: '12px', color: '#666' }}>(optional)</span>
-          </label>
-          <input
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            autoComplete="name"
-            style={{
-              width: '100%',
-              padding: '8px',
-              border: '1px solid #ccc',
-              borderRadius: '4px',
-            }}
-            placeholder="John Doe"
-          />
-        </div>
-
-        <button
-          type="submit"
-          disabled={loading}
-          style={{
-            width: '100%',
-            padding: '10px',
-            backgroundColor: loading ? '#ccc' : '#0070f3',
-            color: 'white',
-            border: 'none',
-            borderRadius: '4px',
-            cursor: loading ? 'not-allowed' : 'pointer',
-            fontSize: '16px',
-          }}
-        >
-          {loading ? 'Creating account...' : 'Register'}
-        </button>
-      </form>
-
-      <div style={{ marginTop: '20px', textAlign: 'center' }}>
-        <a href="/login" style={{ color: '#0070f3' }}>
-          Already have an account? Login
-        </a>
       </div>
     </div>
   );

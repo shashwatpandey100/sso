@@ -318,9 +318,7 @@ export const refresh = async (req: Request, res: Response, next: NextFunction): 
 // LOGOUT
 export const logout = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const refreshTokenFromCookie = req.cookies?.refresh_token;
-    const refreshTokenFromBody = req.body.refreshToken;
-    const refreshTokenValue = refreshTokenFromCookie || refreshTokenFromBody;
+    const refreshTokenValue = req.cookies?.refresh_token;
 
     if (refreshTokenValue) {
       // Revoke refresh token in database
@@ -329,12 +327,16 @@ export const logout = async (req: Request, res: Response, next: NextFunction): P
         .update(refreshTokens)
         .set({ isRevoked: true })
         .where(eq(refreshTokens.tokenHash, tokenHash));
+      
+      logger.info('Refresh token revoked');
     }
 
+    // Clear all authentication cookies
     res.clearCookie('access_token');
     res.clearCookie('refresh_token');
+    res.clearCookie('accounts_session');
 
-    logger.info('User logged out');
+    logger.info('User logged out successfully');
 
     res.status(200).json({
       success: true,

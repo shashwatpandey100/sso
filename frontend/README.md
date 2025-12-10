@@ -1,6 +1,15 @@
-# Shelfex Accounts Frontend
+# Shelfex Accounts - Frontend
 
-This is the frontend application for the Shelfex centralized authentication system. It provides the user interface for login, registration, and OAuth 2.0 Single Sign-On flows.
+A modern, polished authentication frontend built with **Next.js 14**, **TypeScript**, and **Tailwind CSS**.
+
+## Features
+
+- ✨ Clean, modern UI with gradient backgrounds
+- 🎨 Beautiful Tailwind CSS styling
+- 📱 Fully responsive design
+- 🔐 OAuth 2.0 authentication flow
+- ⚡ Fast page loads with Next.js
+- 🎯 Type-safe with TypeScript
 
 ## Tech Stack
 
@@ -8,25 +17,50 @@ This is the frontend application for the Shelfex centralized authentication syst
 - **React 19.2.0**
 - **TypeScript 5**
 - **Axios 1.13.2** (API client with credentials support)
-- **TailwindCSS 4** (minimal usage, inline styles for simplicity)
+- **Tailwind CSS 4** (Modern utility-first CSS)
+
+## Pages
+
+### 1. Root (`/`)
+- Automatically redirects to `/login`
+- Users should never directly visit accounts.shelfex.com
+- In production, users are redirected here via OAuth flow from client apps
+
+### 2. Login (`/login`)
+- Clean login form with email/username and password
+- OAuth flow support (detects `client_id` param)
+- Error handling with user-friendly messages
+- Loading states with animated spinner
+- Link to register page
+
+### 3. Register (`/register`)
+- Account creation form
+- Fields: Email (required), Username (optional), Password (required), Full Name (optional)
+- Automatic redirect to login after successful registration
+- Form validation and error messages
+
+### 4. Success (`/success`)
+- Post-login confirmation page
+- Displays user account details
+- Explains SSO functionality
+- Logout button
+- Only accessible when authenticated (redirects to login otherwise)
 
 ## Project Structure
 
 ```
 frontend/
 ├── app/
-│   ├── page.tsx              # Homepage with navigation and OAuth test link
+│   ├── page.tsx              # Redirects to /login
 │   ├── login/
-│   │   └── page.tsx          # Login page with OAuth context support
+│   │   └── page.tsx          # OAuth-ready login page
 │   ├── register/
-│   │   └── page.tsx          # User registration page
-│   ├── dashboard/
-│   │   └── page.tsx          # Protected route example (requires auth)
-│   └── callback/
-│       └── page.tsx          # OAuth callback handler (displays auth code)
+│   │   └── page.tsx          # Account creation page
+│   └── success/
+│       └── page.tsx          # Post-login success page
 ├── lib/
 │   ├── axios.ts              # Axios instance with withCredentials
-│   └── api.ts                # Typed API client (authApi, oauthApi)
+│   └── api.ts                # Typed API client (authApi)
 ├── .env.local                # Environment variables
 └── package.json
 ```
@@ -61,81 +95,78 @@ npm run dev
 
 The app will be available at `http://localhost:3000`.
 
-## Pages Overview
+## Key Features
 
-### 1. Homepage (`/`)
-- Landing page with navigation
-- Links to Login, Register, and Dashboard
-- OAuth test link to initiate SSO flow with ShelfScan
-- Displays test credentials for development
+### Gradient Backgrounds
+Each page has a unique gradient for visual appeal:
+- **Login:** Blue to Purple
+- **Register:** Purple to Blue
+- **Success:** Green to Blue
 
-### 2. Login (`/login`)
-- Email/username + password login
-- Supports OAuth context via query parameters:
-  - `client_id`: OAuth client identifier
-  - `redirect_uri`: Where to redirect after login
-  - `state`: CSRF protection token
-- If OAuth params present, displays client app info
-- Redirects to backend OAuth flow on successful login
-- Sets cookies: `access_token`, `refresh_token`, `accounts_session`
+### Responsive Design
+All pages are fully responsive with:
+- Mobile-first approach
+- Breakpoints for sm, md, lg screens
+- Touch-friendly buttons and inputs
+
+### Loading States
+All forms include:
+- Disabled state during submission
+- Animated spinner
+- Contextual loading text
+
+### Error Handling
+User-friendly error messages with:
+- Icon indicators
+- Colored backgrounds (red for errors, blue for info)
+- Clear, actionable text
+
+## OAuth Flow Support
+
+The login page supports OAuth context via query parameters:
+- `client_id`: OAuth client identifier (e.g., "shelfscan")
+- `redirect_uri`: Where to redirect after login
+- `state`: CSRF protection token
 
 **OAuth Login URL Example:**
 ```
 http://localhost:3000/login?client_id=shelfscan&redirect_uri=http://localhost:3000/callback&state=random_state_123
 ```
 
-### 3. Register (`/register`)
-- Email (required)
-- Username (optional)
-- Password (required)
-- Name (optional)
-- Redirects to login page on success
-
-### 4. Dashboard (`/dashboard`)
-- Protected route example
-- Displays user profile information
-- Fetches `/auth/me` on mount
-- Redirects to `/login` if not authenticated
-- Logout button (revokes refresh token)
-
-### 5. Callback (`/callback`)
-- OAuth callback handler
-- Displays authorization code received from backend
-- Shows state parameter for CSRF verification
-- Explains next steps in OAuth flow
-- In production, client apps would parse this and exchange code for tokens
+When OAuth params are present:
+- Displays client app info banner
+- Submits credentials to backend
+- Backend handles redirect to OAuth authorize endpoint
 
 ## API Client (`lib/api.ts`)
+
+The frontend uses Axios with `withCredentials: true` to automatically send cookies with every request.
 
 ### Auth API
 
 ```typescript
 // Register new user
-const response = await authApi.register({
+await authApi.register({
   email: 'user@example.com',
   username: 'myusername', // optional
   password: 'securepass',
   name: 'John Doe' // optional
 });
 
-// Login
-const response = await authApi.login({
+// Login (with optional OAuth params)
+await authApi.login({
   identifier: 'user@example.com', // or username
   password: 'securepass',
-  // Optional OAuth params
-  client_id: 'shelfscan',
-  redirect_uri: 'http://localhost:3000/callback',
-  state: 'random_state'
+  client_id: 'shelfscan', // optional
+  redirect_uri: 'http://localhost:3000/callback', // optional
+  state: 'random_state' // optional
 });
 
-// Get current user (requires auth)
-const user = await authApi.getCurrentUser();
-
-// Logout
+// Logout (revokes refresh token)
 await authApi.logout();
 
 // Refresh access token
-const response = await authApi.refresh();
+await authApi.refresh();
 ```
 
 ### OAuth API
@@ -150,64 +181,46 @@ const data = await oauthApi.getLoginPageData({
 });
 ```
 
-## Authentication Flow
+## Authentication Flows
 
 ### Standard Login Flow
 
-1. User visits `/login`
+1. User navigates to `/login`
 2. Enters email/username + password
 3. Frontend calls `POST /auth/login`
-4. Backend sets cookies: `access_token`, `refresh_token`, `accounts_session`
-5. Frontend redirects to `/dashboard`
+4. Backend validates credentials and sets three cookies:
+   - `access_token` (1 day, HttpOnly)
+   - `refresh_token` (30 days, HttpOnly)
+   - `accounts_session` (7 days, HttpOnly)
+5. User is redirected to home page
 
-### OAuth SSO Flow (3 Scenarios)
+### OAuth SSO Flow
 
-#### Scenario 1: Cold Start (Not Logged In)
+For detailed OAuth scenarios (Cold Start, SSO Magic, Zombie Session, etc.), see the backend README.md which documents 6 complete flows with request/response examples.
 
-1. User visits ShelfScan: `https://devshelfscan.shelfexecution.com`
-2. User clicks "Login"
-3. ShelfScan redirects to:
-   ```
-   http://localhost:8000/api/v1/oauth/authorize?client_id=shelfscan&redirect_uri=http://localhost:3000/callback&response_type=code&state=abc123
-   ```
-4. Backend checks `accounts_session` cookie → **Not found**
-5. Backend redirects to:
-   ```
-   http://localhost:3000/login?client_id=shelfscan&redirect_uri=http://localhost:3000/callback&state=abc123
-   ```
-6. User enters credentials on `/login`
-7. Frontend calls `POST /auth/login` with OAuth params
-8. Backend sets cookies and redirects to:
-   ```
-   http://localhost:3000/callback?code=xyz789&state=abc123
-   ```
-9. Callback page displays auth code
-10. ShelfScan backend exchanges code for tokens via `POST /oauth/token`
+**Quick Overview:**
 
-#### Scenario 2: SSO Magic (Already Logged In)
+**Scenario 1: New User (Cold Start)**
+1. User clicks "Login" on client app (e.g., ShelfScan)
+2. Client redirects to `http://localhost:8000/api/v1/oauth/authorize?client_id=shelfscan&...`
+3. Backend checks `accounts_session` cookie → Not found
+4. Backend redirects to `http://localhost:3000/login?client_id=shelfscan&...`
+5. User enters credentials
+6. Backend sets cookies and redirects to `http://localhost:3000/callback?code=xyz&state=abc`
+7. Client app exchanges code for tokens
 
-1. User already logged into accounts.shelfex.com (has `accounts_session` cookie)
-2. User visits ShelfMuse: `https://dev.shelfmuse.tech`
-3. User clicks "Login"
-4. ShelfMuse redirects to OAuth authorize endpoint
-5. Backend checks `accounts_session` → **Valid session found**
-6. Backend generates auth code instantly
-7. Backend redirects to:
-   ```
-   http://localhost:3000/callback?code=xyz789&state=def456
-   ```
-8. **No login page shown** - seamless SSO!
+**Scenario 2: Returning User (SSO Magic)**
+1. User already has valid `accounts_session` cookie
+2. Client redirects to OAuth authorize endpoint
+3. Backend finds valid session → generates code instantly
+4. Backend redirects to callback → **No login page shown!**
+5. Seamless SSO experience
 
-#### Scenario 3: Zombie Session (Access Token Expired, Refresh Token Valid)
-
-1. User's `access_token` expired (1 day passed)
-2. User's `refresh_token` still valid (within 30 days)
-3. User's `accounts_session` cookie still valid
-4. User visits ShelfIntel
-5. Backend checks `accounts_session` → **Found but access token expired**
-6. Backend auto-generates new auth code using session
-7. ShelfIntel backend exchanges code for new tokens
-8. User authenticated without login prompt
+**Scenario 3: Expired Access Token**
+1. `access_token` expired but `refresh_token` and `accounts_session` still valid
+2. Backend auto-generates new auth code using session
+3. Client exchanges code for fresh tokens
+4. User never sees login prompt
 
 ## Cookie Management
 
@@ -259,16 +272,22 @@ This allows `accounts_session` to work across:
 - ✅ Passwords never stored in plain text
 
 ### 5. **Protected Routes**
-- ✅ Dashboard checks auth on mount
+- ✅ Success page checks auth on mount
 - ✅ Redirects to login if not authenticated
 - ✅ Uses `/auth/me` endpoint to verify session
 
-## Testing the SSO Flow
+### 6. **No Client-Side Token Storage**
+- ❌ JWT tokens are NOT stored in localStorage or sessionStorage
+- ✅ All tokens stored in HttpOnly cookies only
+- ✅ Frontend never has access to raw tokens
+- ✅ Prevents XSS token theft
+
+## Testing the Application
 
 ### Prerequisites
 1. Backend running on `http://localhost:8000`
 2. Frontend running on `http://localhost:3000`
-3. Database seeded with test user and client apps
+3. Database seeded with test user and client apps (see backend README)
 
 ### Test Steps
 
@@ -283,36 +302,29 @@ This allows `accounts_session` to work across:
    npm run dev
    ```
 
-2. **Test Standard Login:**
+2. **Test Registration:**
+   - Visit: `http://localhost:3000/register`
+   - Create new account with email and password
+   - Should redirect to login page
+
+3. **Test Login:**
    - Visit: `http://localhost:3000/login`
-   - Enter: `test@shelfex.com` / `12345`
-   - Should redirect to homepage or dashboard
-   - Check cookies in DevTools (Application → Cookies)
+   - Enter your credentials
+   - Should redirect to `/success` page showing account details
+   - Check cookies in DevTools (Application → Cookies → localhost:3000)
+   - Should see: `access_token`, `refresh_token`, `accounts_session`
+   - Try logging out from success page
 
-3. **Test OAuth Flow:**
-   - Visit: `http://localhost:3000`
-   - Click "Test ShelfScan Login" link
-   - Should redirect to login page with OAuth context
-   - Login with test credentials
-   - Should redirect to callback page with auth code
-
-4. **Test SSO (Already Logged In):**
-   - Complete step 3 above (now logged in)
-   - Click "Test ShelfScan Login" again
-   - **Should skip login page** and go straight to callback
-
-5. **Test Protected Route:**
-   - Visit: `http://localhost:3000/dashboard`
-   - If not logged in, redirects to login
-   - If logged in, displays user profile
-
-6. **Test Logout:**
-   - Go to dashboard
-   - Click "Logout"
-   - Should revoke refresh token
-   - Redirects to login
-
-## Troubleshooting
+4. **Test OAuth Flow (Cold Start):**
+   - Open new incognito window
+4. **Test OAuth Flow (Production Simulation):**
+   - For real OAuth testing, you need a client app (ShelfScan, ShelfMuse, etc.)
+   - Client app redirects to: `http://localhost:8000/api/v1/oauth/authorize?client_id=shelfscan&redirect_uri=https://shelfscan.com/callback&response_type=code&state=test123`
+   - User logs in on accounts frontend
+   - Backend redirects to client's callback with auth code
+   - Client app exchanges code for tokens
+   
+   **Note:** The accounts frontend does NOT have a `/callback` page. Only client apps have callbacks.
 
 ### Issue: "Network Error" on API calls
 
@@ -336,20 +348,19 @@ This allows `accounts_session` to work across:
 - Ensure `redirect_uri` is URL-encoded
 - Check backend logs for validation errors
 
-### Issue: Dashboard redirects to login even when logged in
-
-**Solution:**
-- Check if `access_token` cookie is set
-- Verify token hasn't expired (1 day)
-- Try refreshing with `/auth/refresh` endpoint
-- Check browser console for error messages
-
 ### Issue: "Invalid client" error
 
 **Solution:**
 - Verify `client_id` exists in `clientApps` table
 - Check if client is active (not disabled)
 - Run `npm run db:seed` in backend to recreate clients
+
+### Issue: Gradient not showing
+
+**Solution:**
+- Ensure Tailwind CSS is properly configured
+- Check that `globals.css` imports Tailwind directives
+- Restart dev server after Tailwind config changes
 
 ## Production Deployment
 
@@ -467,16 +478,17 @@ async function refreshAccessToken(refreshToken: string) {
 }
 ```
 
-## Test Credentials
+## Development Notes
 
-**Email:** test@shelfex.com  
-**Username:** testuser  
-**Password:** 12345
+### Test Data
+See backend README for test credentials and seeded client apps.
 
-**Client Apps:**
-- **ShelfScan:** `client_id=shelfscan`, `client_secret=shelfscan-dev-secret-2025`
-- **ShelfMuse:** `client_id=shelfmuse`, `client_secret=shelfmuse-dev-secret-2025`
-- **ShelfIntel:** `client_id=shelfintel`, `client_secret=shelfintel-dev-secret-2025`
+### UI Patterns
+- **Gradients:** Each page uses unique gradient backgrounds for visual distinction
+- **Loading States:** All forms disable inputs and show spinner during submission
+- **Error Handling:** Red-tinted alerts with icon indicators
+- **OAuth Context:** Blue info banners when OAuth params are present
+- **Responsive:** Mobile-first design with `sm:`, `md:`, `lg:` breakpoints
 
 ## Further Reading
 
@@ -484,3 +496,8 @@ async function refreshAccessToken(refreshToken: string) {
 - [OAuth 2.0 Spec](https://tools.ietf.org/html/rfc6749)
 - [Next.js App Router Docs](https://nextjs.org/docs/app)
 - [Axios Documentation](https://axios-http.com/docs/intro)
+
+**Test User:**
+- Email: `test@shelfex.com`
+- Username: `testuser`
+- Password: `12345`

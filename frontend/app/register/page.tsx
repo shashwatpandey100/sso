@@ -75,8 +75,8 @@ export default function RegisterPage() {
 
           <div className="mt-4">
             {error && (
-              <div className="mb-6 rounded-lg border border-red-200 bg-red-50 p-4">
-                <div className="flex items-start">
+              <div className="mb-6 bg-red-100 p-4">
+                <div className="flex items-center">
                   <svg
                     className="mt-0.5 mr-2 h-5 w-5 text-red-600"
                     fill="none"

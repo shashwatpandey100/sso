@@ -104,7 +104,7 @@ function LoginPageContent() {
 
           <div className="mt-4">
             {clientId && (
-              <div className="mb-6 rounded-lg border border-blue-200 bg-blue-50 p-4">
+              <div className="mb-6 bg-gray-100 p-4">
                 <div className="flex items-center">
                   <svg
                     className="mr-2 h-5 w-5 text-blue-600"
@@ -128,8 +128,8 @@ function LoginPageContent() {
             )}
 
             {error && (
-              <div className="mb-6 rounded-lg border border-red-200 bg-red-50 p-4">
-                <div className="flex items-start">
+              <div className="mb-6 bg-gray-100 p-4">
+                <div className="flex items-center">
                   <svg
                     className="mt-0.5 mr-2 h-5 w-5 text-red-600"
                     fill="none"
